@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>川中島大合戦3D - Expanded RTS</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js (r128) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Google Fonts for Sengoku Aesthetics -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;800&family=Yuji+Syuku&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            user-select: none;
+            background-color: #0d0f12;
+            font-family: 'Shippori Mincho', serif;
+        }
+        .font-sengoku {
+            font-family: 'Yuji Syuku', serif;
+        }
+        /* Sengoku Style UI Panels with Glassmorphism */
+        .sengoku-panel {
+            background: linear-gradient(135deg, rgba(18, 16, 22, 0.78) 0%, rgba(8, 7, 10, 0.88) 100%);
+            border: 1.5px solid #b8860b;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.7), inset 0 0 15px rgba(184, 134, 11, 0.15);
+            backdrop-filter: blur(8px);
+        }
+        .sengoku-card {
+            background: rgba(30, 25, 20, 0.75);
+            border: 1px solid #7a6332;
+            transition: all 0.2s ease;
+        }
+        .sengoku-card:hover {
+            border-color: #e6c280;
+            background: rgba(45, 35, 25, 0.9);
+            box-shadow: 0 0 10px rgba(230, 194, 128, 0.3);
+        }
+        .sengoku-card.selected {
+            border-color: #f1c40f;
+            background: rgba(70, 50, 15, 0.95);
+            box-shadow: 0 0 15px rgba(241, 196, 15, 0.5);
+        }
+        .sengoku-btn {
+            background: linear-gradient(180deg, #8b0000 0%, #4a0000 100%);
+            border: 1px solid #d4af37;
+            color: #f7e7ce;
+            text-shadow: 1px 1px 2px #000;
+            transition: all 0.15s ease;
+        }
+        .sengoku-btn:hover:not(:disabled) {
+            background: linear-gradient(180deg, #a52a2a 0%, #600000 100%);
+            border-color: #fff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(212, 175, 55, 0.4);
+        }
+        .sengoku-btn:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+        .sengoku-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            filter: grayscale(80%);
+        }
+        /* Selection Box overlay */
+        #selection-box {
+            border: 1.5px dashed #f1c40f;
+            background-color: rgba(241, 196, 15, 0.15);
+            position: absolute;
+            pointer-events: none;
+            display: none;
+            z-index: 20;
+        }
+        /* Custom scrollbar for log */
+        ::-webkit-scrollbar {
+            width: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(10, 10, 10, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #7a6332;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="text-gray-100 select-none overflow-hidden">
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container" class="w-full h-screen absolute inset-0 z-0"></div>
+
+    <!-- Drag Selection Box Overlay -->
+    <div id="selection-box"></div>
+
+    <!-- Squad Mouse Hover HUD Tooltip -->
+    <div id="squad-hover-tooltip" class="fixed pointer-events-none z-30 hidden sengoku-panel p-2.5 rounded-lg border border-amber-400 text-xs shadow-2xl transition-opacity duration-150 min-w-[210px]">
+        <div class="flex items-center gap-2 border-b border-amber-800/80 pb-1 mb-1.5">
+            <span id="tt-kamon" class="w-6 h-6 rounded-full bg-amber-950 border border-amber-400 flex items-center justify-center font-bold text-amber-300 text-xs font-sengoku"></span>
+            <div>
+                <div id="tt-name" class="font-bold font-sengoku text-amber-200 text-sm"></div>
+                <div id="tt-type" class="text-[10px] text-amber-400/90"></div>
+            </div>
+            <span id="tt-status" class="ml-auto text-[10px] px-1.5 py-0.5 rounded font-bold"></span>
+        </div>
+        <div class="space-y-1 text-[11px]">
+            <div>
+                <div class="flex justify-between text-emerald-400 text-[10px]">
+                    <span>兵力（戦力）</span><span id="tt-hp-text" class="text-amber-100 font-mono"></span>
+                </div>
+                <div class="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden border border-emerald-900/60">
+                    <div id="tt-hp-bar" class="bg-gradient-to-r from-emerald-600 to-green-400 h-full"></div>
+                </div>
+            </div>
+            <div>
+                <div class="flex justify-between text-amber-400 text-[10px]">
+                    <span>士気（戦意）</span><span id="tt-morale-text" class="text-amber-100 font-mono"></span>
+                </div>
+                <div class="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden border border-amber-900/60">
+                    <div id="tt-morale-bar" class="bg-gradient-to-r from-amber-600 to-yellow-300 h-full"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- UI Overlay Layer -->
+    <div class="relative z-10 w-full h-screen pointer-events-none flex flex-col justify-between p-2 md:p-4">
+
+        <!-- Top Header & War Meter -->
+        <div class="w-full flex flex-col md:flex-row items-center justify-between gap-2 pointer-events-auto">
+            <!-- Alliance Title & Controls -->
+            <div class="sengoku-panel px-3 py-1.5 rounded-lg flex items-center gap-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-xl font-sengoku text-amber-400 tracking-widest font-bold">川中島広域大合戦</span>
+                    <span class="bg-amber-900/60 text-amber-200 text-[10px] px-1.5 py-0.5 rounded border border-amber-500/40">3D RTS</span>
+                </div>
+                <div class="flex items-center gap-1.5 border-l border-amber-800/60 pl-3">
+                    <button id="btn-pause" class="sengoku-btn px-2 py-0.5 text-xs rounded">一時停止</button>
+                    <button id="btn-speed" class="sengoku-btn px-2 py-0.5 text-xs rounded">速度 1x</button>
+                    <span id="game-timer" class="text-amber-300 font-mono text-xs font-bold w-12 text-center">00:00</span>
+                </div>
+            </div>
+
+            <!-- Compact War Situation Bar (全軍戦況メーター) -->
+            <div class="sengoku-panel px-3 py-1.5 rounded-lg w-full max-w-lg flex flex-col gap-0.5">
+                <div class="flex justify-between items-center text-[11px] font-bold font-sengoku">
+                    <span class="text-blue-400 flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-blue-500 inline-block"></span> 織田・真田全軍 (東軍)
+                    </span>
+                    <span id="war-status-text" class="text-amber-300 text-xs font-extrabold">互角の戦況</span>
+                    <span class="text-red-400 flex items-center gap-1">
+                        武田・北条全軍 (西軍) <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+                    </span>
+                </div>
+                <div class="w-full bg-red-950 h-2.5 rounded-full overflow-hidden border border-amber-600/50 flex">
+                    <div id="player-war-bar" class="bg-gradient-to-r from-blue-700 to-cyan-500 h-full transition-all duration-300" style="width: 50%;"></div>
+                    <div id="enemy-war-bar" class="bg-gradient-to-r from-red-500 to-amber-700 h-full transition-all duration-300" style="width: 50%;"></div>
+                </div>
+            </div>
+
+            <!-- Camera Quick Controls -->
+            <div class="sengoku-panel px-2.5 py-1 rounded-lg hidden lg:flex items-center gap-2 text-xs text-amber-200">
+                <span>視点:</span>
+                <button id="cam-reset" class="hover:text-amber-400 underline">全体視点</button> |
+                <button id="cam-follow" class="hover:text-amber-400 underline">部隊追尾</button>
+            </div>
+        </div>
+
+        <!-- Middle Controls Overlay (Quick Selection Bar left, Combat Log right) -->
+        <div class="w-full flex-1 flex justify-between items-end my-2 pointer-events-none">
+            
+            <!-- Left Side: Collapsible Player Squad Quick Cards -->
+            <div class="flex flex-col gap-1 pointer-events-auto max-w-xs">
+                <div class="flex items-center justify-between text-xs font-sengoku text-amber-300 bg-black/70 px-2 py-1 rounded border border-amber-800">
+                    <span>味方五軍 [キー 1-5]</span>
+                    <button id="toggle-squad-list" class="text-[10px] text-amber-400 hover:underline ml-2">非表示 ▲</button>
+                </div>
+                <div id="squad-quick-list" class="flex flex-col gap-1 transition-all duration-200">
+                    <!-- Dynamic Squad Cards populated by JS -->
+                </div>
+            </div>
+
+            <!-- Right Side: Mini Map & Collapsible Battle Log -->
+            <div class="flex flex-col items-end gap-2 pointer-events-auto">
+                <!-- Mini Map Container -->
+                <div class="sengoku-panel p-1 rounded-lg border-amber-600 relative overflow-hidden shadow-2xl">
+                    <canvas id="minimap-canvas" width="130" height="130" class="rounded bg-emerald-950/90 border border-amber-800/60"></canvas>
+                    <div class="absolute top-1 left-1.5 text-[9px] text-amber-400 font-bold bg-black/70 px-1 rounded">戦場俯瞰</div>
+                </div>
+
+                <!-- Battle Log Box -->
+                <div class="sengoku-panel w-64 md:w-72 p-2 rounded-lg flex flex-col justify-between">
+                    <div class="text-xs font-sengoku text-amber-400 border-b border-amber-800/80 pb-0.5 mb-1 flex justify-between items-center">
+                        <span>合戦絵巻（戦闘記録）</span>
+                        <button id="toggle-battle-log" class="text-[10px] text-amber-400 hover:underline">小 ▲</button>
+                    </div>
+                    <div id="battle-log" class="text-[11px] overflow-y-auto h-24 space-y-1 font-sans text-gray-300 leading-snug transition-all duration-200">
+                        <div class="text-amber-200/70">合戦開始。部隊を選択し地面クリックで移動指示を与えてください。</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Panel: Selected Squad Details & Action Controls (Collapsible) -->
+        <div class="w-full pointer-events-auto">
+            <div id="selected-squad-panel" class="sengoku-panel rounded-xl p-2.5 md:p-3 transition-all duration-300 max-w-4xl mx-auto relative">
+                
+                <!-- Toggle Panel Button -->
+                <button id="toggle-bottom-panel" class="absolute -top-3 right-4 bg-amber-950 border border-amber-500 text-amber-300 text-[10px] px-2 py-0.5 rounded shadow hover:bg-amber-900">
+                    詳細パネル 格納 ▼
+                </button>
+
+                <div id="bottom-panel-content" class="flex flex-col md:flex-row items-center justify-between gap-3">
+                    
+                    <!-- General Avatar & Basic Stats -->
+                    <div class="flex items-center gap-3">
+                        <div id="panel-kamon" class="w-12 h-12 rounded-full border-2 border-amber-400 bg-amber-950 flex items-center justify-center text-xl shadow-lg font-sengoku">
+                            織
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span id="panel-general-name" class="text-lg font-sengoku font-bold text-amber-300">織田信長</span>
+                                <span id="panel-troop-type" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900 border border-amber-500 text-amber-200 font-bold">鉄砲兵</span>
+                            </div>
+                            <div class="text-[11px] text-amber-200/80 flex items-center gap-2 mt-0.5">
+                                <span>統: <strong id="stat-lead" class="text-amber-300">95</strong></span>
+                                <span>武: <strong id="stat-valor" class="text-amber-300">88</strong></span>
+                                <span>知: <strong id="stat-wis" class="text-amber-300">98</strong></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gauges (HP & Morale) -->
+                    <div class="flex flex-col gap-1.5 w-full md:w-56">
+                        <div>
+                            <div class="flex justify-between text-[11px] font-bold mb-0.5">
+                                <span class="text-emerald-400">兵力</span>
+                                <span id="panel-hp-text" class="text-amber-200 font-mono">3800 / 3800</span>
+                            </div>
+                            <div class="w-full bg-gray-900 h-2 rounded-full overflow-hidden border border-emerald-900">
+                                <div id="panel-hp-bar" class="bg-gradient-to-r from-emerald-600 to-green-400 h-full transition-all duration-200" style="width: 100%;"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-[11px] font-bold mb-0.5">
+                                <span class="text-amber-400">士気</span>
+                                <span id="panel-morale-text" class="text-amber-200 font-mono">160 / 160</span>
+                            </div>
+                            <div class="w-full bg-gray-900 h-2 rounded-full overflow-hidden border border-amber-900">
+                                <div id="panel-morale-bar" class="bg-gradient-to-r from-amber-600 to-yellow-300 h-full transition-all duration-200" style="width: 100%;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Formations Selector -->
+                    <div class="flex flex-col items-center gap-1">
+                        <span class="text-[10px] text-amber-300/80 font-sengoku">陣形変更</span>
+                        <div class="flex gap-1">
+                            <button data-formation="WINGS" class="btn-formation sengoku-btn px-2 py-0.5 text-xs rounded">鶴翼</button>
+                            <button data-formation="WEDGE" class="btn-formation sengoku-btn px-2 py-0.5 text-xs rounded">魚鱗</button>
+                            <button data-formation="CIRCLE" class="btn-formation sengoku-btn px-2 py-0.5 text-xs rounded">方円</button>
+                            <button data-formation="LINE" class="btn-formation sengoku-btn px-2 py-0.5 text-xs rounded">長蛇</button>
+                        </div>
+                    </div>
+
+                    <!-- Active Skill Button -->
+                    <div class="flex flex-col items-center w-full md:w-44">
+                        <button id="btn-skill" class="sengoku-btn w-full py-1.5 px-2 rounded-lg flex flex-col items-center justify-center border border-amber-400/80 relative overflow-hidden">
+                            <div id="skill-cd-overlay" class="absolute inset-0 bg-black/70 transition-all duration-100" style="width: 0%;"></div>
+                            <span id="panel-skill-name" class="font-sengoku font-bold text-xs text-amber-200 relative z-10">奥義：三段射撃</span>
+                            <span id="panel-skill-desc" class="text-[9px] text-amber-300/80 relative z-10 truncate w-full text-center">敵士気激減</span>
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Victory / Defeat Modal -->
+    <div id="modal-result" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center hidden">
+        <div class="sengoku-panel max-w-lg w-full p-6 rounded-2xl border-2 border-amber-500 text-center flex flex-col items-center gap-5 shadow-2xl">
+            <h1 id="result-title" class="text-4xl font-sengoku font-extrabold text-amber-400 tracking-widest">勝鬨をあげよ！</h1>
+            <p id="result-subtitle" class="text-amber-200 text-sm font-sans">敵全軍を討ち払い、川中島の戦いに勝利しました。</p>
+            
+            <div class="w-full bg-amber-950/40 p-4 rounded-lg border border-amber-800/60 text-left text-xs space-y-2 text-amber-200 font-sans">
+                <div class="flex justify-between border-b border-amber-800/40 pb-1">
+                    <span>生存部隊数:</span> <strong id="res-survived" class="text-amber-300">5 / 5 部隊</strong>
+                </div>
+                <div class="flex justify-between border-b border-amber-800/40 pb-1">
+                    <span>撃破敵部隊数:</span> <strong id="res-killed" class="text-red-400">5 部隊</strong>
+                </div>
+                <div class="flex justify-between border-b border-amber-800/40 pb-1">
+                    <span>合戦所要時間:</span> <strong id="res-time" class="text-amber-300">02:45</strong>
+                </div>
+                <div class="flex justify-between">
+                    <span>殊勲の武将 (MVP):</span> <strong id="res-mvp" class="text-yellow-300">織田信長 (1,450 兵撃破)</strong>
+                </div>
+            </div>
+
+            <button id="btn-restart" class="sengoku-btn text-base font-sengoku px-8 py-2.5 rounded-xl border-amber-400 font-bold tracking-wider">
+                再戦する
+            </button>
+        </div>
+    </div>
+
+    <script>
+    /* =========================================================================
+       1. GAME CONSTANTS & DATA DEFINITIONS
+       ========================================================================= */
+
+    // Troop Types & Combat Match-up Rules
+    const TROOP_TYPES = {
+        SPEAR: { name: '槍兵', icon: '🔱', speed: 1.0, range: 10, advantage: 'CAVALRY', disadvantage: 'KATANA', color: '#27ae60' },
+        CAVALRY: { name: '騎兵', icon: '🐎', speed: 1.6, range: 11, advantage: 'KATANA', disadvantage: 'SPEAR', color: '#c0392b' },
+        KATANA: { name: '刀サムライ', icon: '⚔️', speed: 1.15, range: 10, advantage: 'SPEAR', disadvantage: 'CAVALRY', color: '#2980b9' },
+        TEPPO: { name: '鉄砲兵', icon: '💥', speed: 0.85, range: 75, advantage: 'ALL_DISTANT', disadvantage: 'MELEE', color: '#e67e22' },
+        YUMI: { name: '弓兵', icon: '🏹', speed: 1.0, range: 65, advantage: 'TEPPO_MID', disadvantage: 'MELEE', color: '#8e44ad' }
+    };
+
+    function computeMatchupFactor(atkType, defType) {
+        const atkData = TROOP_TYPES[atkType];
+        if (!atkData) return 1.0;
+
+        if (atkData.advantage === defType) return 1.45;
+        if (atkData.disadvantage === defType) return 0.65;
+        if (atkType === 'TEPPO' || atkType === 'YUMI') {
+            if (defType === 'SPEAR' || defType === 'KATANA') return 1.15;
+            if (defType === 'CAVALRY') return 0.85;
+        }
+        return 1.0;
+    }
+
+    const FORMATIONS = {
+        WINGS: '鶴翼の陣',  // V-shape
+        WEDGE: '魚鱗の陣',  // Triangle forward
+        CIRCLE: '方円の陣', // Perimeter
+        LINE: '長蛇の陣'    // Column
+    };
+
+    // Player Sengoku Generals (東軍 織田・真田軍) - Spread out over 1400x1400 battlefield
+    const PLAYER_GENERALS = [
+        { id: 'p1', name: '織田信長', kamon: '織', type: 'TEPPO', hp: 3800, maxHp: 3800, morale: 160, maxMorale: 160, lead: 95, valor: 88, wis: 98, skill: '三段射撃', skillDesc: '全鉄砲隊の斉射で敵の士気を激減させる', color: 0x3498db, initPos: {x: -350, z: 480} },
+        { id: 'p2', name: '真田幸村', kamon: '六', type: 'CAVALRY', hp: 3500, maxHp: 3500, morale: 200, maxMorale: 200, lead: 88, valor: 99, wis: 85, skill: '日本一の兵', skillDesc: '猛烈な速度で突撃し周囲敵軍をなぎ倒す', color: 0xe74c3c, initPos: {x: -180, z: 520} },
+        { id: 'p3', name: '本多忠勝', kamon: '葵', type: 'SPEAR', hp: 4500, maxHp: 4500, morale: 180, maxMorale: 180, lead: 96, valor: 98, wis: 76, skill: '蜻蛉切の威光', skillDesc: '自軍の防御力と士気を最高潮にする', color: 0x2ecc71, initPos: {x: 0, z: 540} },
+        { id: 'p4', name: '上杉謙信', kamon: '毘', type: 'KATANA', hp: 4000, maxHp: 4000, morale: 190, maxMorale: 190, lead: 97, valor: 97, wis: 90, skill: '車懸かり', skillDesc: '敵近接部隊を車輪のように削り取る', color: 0x9b59b6, initPos: {x: 180, z: 520} },
+        { id: 'p5', name: '伊達政宗', kamon: '月', type: 'YUMI', hp: 3600, maxHp: 3600, morale: 160, maxMorale: 160, lead: 90, valor: 92, wis: 91, skill: '独眼竜の疾風', skillDesc: '矢の雨を降らせ敵の移動速度と戦力を奪う', color: 0xf1c40f, initPos: {x: 350, z: 480} }
+    ];
+
+    // Enemy AI Generals (西軍 武田・北条軍)
+    const ENEMY_GENERALS = [
+        { id: 'e1', name: '武田信玄', kamon: '菱', type: 'CAVALRY', hp: 4200, maxHp: 4200, morale: 200, maxMorale: 200, lead: 98, valor: 92, wis: 97, skill: '風林火山', color: 0xd35400, initPos: {x: -180, z: -520} },
+        { id: 'e2', name: '明智光秀', kamon: '桔', type: 'TEPPO', hp: 3600, maxHp: 3600, morale: 150, maxMorale: 150, lead: 91, valor: 82, wis: 95, skill: '謀略の斉射', color: 0x16a085, initPos: {x: -350, z: -480} },
+        { id: 'e3', name: '北条氏康', kamon: '鱗', type: 'SPEAR', hp: 4400, maxHp: 4400, morale: 170, maxMorale: 170, lead: 94, valor: 85, wis: 92, skill: '相模の獅子城', color: 0xf39c12, initPos: {x: 0, z: -540} },
+        { id: 'e4', name: '島津義弘', kamon: '十', type: 'KATANA', hp: 3900, maxHp: 3900, morale: 200, maxMorale: 200, lead: 92, valor: 96, wis: 84, skill: '鬼島津の特攻', color: 0x7f8c8d, initPos: {x: 180, z: -520} },
+        { id: 'e5', name: '毛利元就', kamon: '一', type: 'YUMI', hp: 3500, maxHp: 3500, morale: 160, maxMorale: 160, lead: 93, valor: 78, wis: 100, skill: '三本の矢', color: 0x34495e, initPos: {x: 350, z: -480} }
+    ];
+
+    /* =========================================================================
+       2. TERRAIN HEIGHT & GAME ENGINE SETUP
+       ========================================================================= */
+
+    // Multi-layered Terrain Height Engine (1400x1400 Map with Mountains, Hills, Valley, Curved River)
+    function getTerrainHeight(x, z) {
+        // Main valley & mountain ranges
+        let y = Math.sin(x * 0.005) * Math.cos(z * 0.005) * 28;
+        y += Math.sin(x * 0.012 + z * 0.015) * 12;
+        y += Math.sin(x * 0.03 - z * 0.02) * 4;
+
+        // Perimeter High Mountain Peaks (両翼の連山)
+        const distFromCenter = Math.hypot(x, z);
+        if (distFromCenter > 480) {
+            y += Math.pow((distFromCenter - 480) / 100, 1.6) * 14;
+        }
+
+        // River Channel curve along z = sin(x * 0.01) * 60
+        const riverZ = Math.sin(x * 0.01) * 60;
+        const riverDist = Math.abs(z - riverZ);
+        if (riverDist < 65) {
+            const depthFactor = Math.cos((riverDist / 65) * Math.PI) * 0.5 + 0.5;
+            y = y * (1 - depthFactor) + (-8.0) * depthFactor;
+        }
+
+        // Bridge approaches smooth leveling at x = -300, 0, 300
+        const bridgeX = [-300, 0, 300];
+        for (let bx of bridgeX) {
+            const bz = Math.sin(bx * 0.01) * 60;
+            const dx = Math.abs(x - bx);
+            const dz = Math.abs(z - bz);
+            if (dx < 30 && dz < 55) {
+                const factor = Math.max(0, 1 - Math.hypot(dx / 30, dz / 55));
+                y = y * (1 - factor) + (0.5) * factor;
+            }
+        }
+        return y;
+    }
+
+    const state = {
+        scene: null,
+        camera: null,
+        renderer: null,
+        controls: null,
+        clock: new THREE.Clock(),
+        gameTime: 0,
+        isPaused: false,
+        gameSpeed: 1,
+        squads: [],
+        selectedSquads: [],
+        hoveredSquad: null,
+        particles: [],
+        raycaster: new THREE.Raycaster(),
+        mouse: new THREE.Vector2(),
+        isDragging: false,
+        dragStart: { x: 0, y: 0 },
+        groundPlane: null,
+        targetRing: null,
+        gameOver: false
+    };
+
+    function initEngine() {
+        const container = document.getElementById('canvas-container');
+        
+        state.scene = new THREE.Scene();
+        state.scene.background = new THREE.Color(0x354430);
+        state.scene.fog = new THREE.FogExp2(0x354430, 0.0007);
+
+        // Expanded Far Clip for 1400x1400 Map
+        state.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 3500);
+        state.camera.position.set(0, 480, 680);
+
+        state.renderer = new THREE.WebGLRenderer({ antialias: true });
+        state.renderer.setSize(window.innerWidth, window.innerHeight);
+        state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        state.renderer.shadowMap.enabled = true;
+        state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(state.renderer.domElement);
+
+        state.controls = new THREE.OrbitControls(state.camera, state.renderer.domElement);
+        state.controls.enableDamping = true;
+        state.controls.dampingFactor = 0.05;
+        state.controls.maxPolarAngle = Math.PI / 2.12;
+        state.controls.minDistance = 50;
+        state.controls.maxDistance = 1500;
+        state.controls.target.set(0, 0, 0);
+
+        const ambientLight = new THREE.AmbientLight(0xfff5ea, 0.7);
+        state.scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xfffaed, 0.9);
+        sunLight.position.set(300, 600, 300);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 10;
+        sunLight.shadow.camera.far = 1800;
+        const d = 750;
+        sunLight.shadow.camera.left = -d;
+        sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d;
+        sunLight.shadow.camera.bottom = -d;
+        state.scene.add(sunLight);
+
+        buildExpandedBattlefieldTerrain();
+
+        // Target Ring
+        const ringGeo = new THREE.RingGeometry(4.0, 5.2, 32);
+        ringGeo.rotateX(-Math.PI / 2);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xf1c40f, side: THREE.DoubleSide, transparent: true, opacity: 0 });
+        state.targetRing = new THREE.Mesh(ringGeo, ringMat);
+        state.targetRing.position.y = 0.3;
+        state.scene.add(state.targetRing);
+
+        window.addEventListener('resize', onWindowResize);
+    }
+
+    function buildExpandedBattlefieldTerrain() {
+        // Expanded Ground Mesh (1400x1400)
+        const terrainGeo = new THREE.PlaneGeometry(1400, 1400, 160, 160);
+        terrainGeo.rotateX(-Math.PI / 2);
+
+        const pos = terrainGeo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+            const x = pos.getX(i);
+            const z = pos.getZ(i);
+            pos.setY(i, getTerrainHeight(x, z));
+        }
+        terrainGeo.computeVertexNormals();
+
+        const terrainMat = new THREE.MeshStandardMaterial({
+            color: 0x425636,
+            roughness: 0.88,
+            metalness: 0.08
+        });
+        const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+        terrain.receiveShadow = true;
+        state.scene.add(terrain);
+        state.groundPlane = terrain;
+
+        // Curved River Mesh
+        const riverGeo = new THREE.PlaneGeometry(1400, 80, 160, 20);
+        riverGeo.rotateX(-Math.PI / 2);
+        const rPos = riverGeo.attributes.position;
+        for (let i = 0; i < rPos.count; i++) {
+            const x = rPos.getX(i);
+            const rz = rPos.getZ(i);
+            const riverCenterZ = Math.sin(x * 0.01) * 60;
+            rPos.setZ(i, rz + riverCenterZ);
+            rPos.setY(i, -2.4 + Math.sin(x * 0.06) * 0.3);
+        }
+        riverGeo.computeVertexNormals();
+
+        const riverMat = new THREE.MeshStandardMaterial({
+            color: 0x1f5c7a,
+            roughness: 0.15,
+            metalness: 0.8,
+            transparent: true,
+            opacity: 0.85
+        });
+        const river = new THREE.Mesh(riverGeo, riverMat);
+        state.scene.add(river);
+
+        // Bridges at -300, 0, 300
+        const bridgePositions = [-300, 0, 300];
+        bridgePositions.forEach(bx => {
+            const bz = Math.sin(bx * 0.01) * 60;
+            const bridgeGroup = new THREE.Group();
+            bridgeGroup.position.set(bx, 0.5, bz);
+
+            const woodMat = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8 });
+            const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x3a2312, roughness: 0.9 });
+
+            const deckGeo = new THREE.BoxGeometry(32, 1.4, 85);
+            const bridgePlank = new THREE.Mesh(deckGeo, woodMat);
+            bridgePlank.receiveShadow = true;
+            bridgePlank.castShadow = true;
+            bridgeGroup.add(bridgePlank);
+
+            for (let side of [-15.5, 15.5]) {
+                const railBeam = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 85), woodMat);
+                railBeam.position.set(side, 2.8, 0);
+                bridgeGroup.add(railBeam);
+
+                for (let pz = -38; pz <= 38; pz += 10) {
+                    const post = new THREE.Mesh(new THREE.BoxGeometry(1.6, 3.6, 1.6), darkWoodMat);
+                    post.position.set(side, 1.8, pz);
+                    bridgeGroup.add(post);
+                }
+            }
+
+            for (let pz of [-25, 0, 25]) {
+                for (let px of [-11, 11]) {
+                    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 14), darkWoodMat);
+                    pillar.position.set(px, -6.5, pz);
+                    bridgeGroup.add(pillar);
+                }
+            }
+
+            state.scene.add(bridgeGroup);
+        });
+
+        // Dense Bamboo & Pine Forests (約500本の樹木を群生配置)
+        const treeGeo = new THREE.ConeGeometry(6.5, 20, 6);
+        const trunkGeo = new THREE.CylinderGeometry(0.9, 1.3, 6);
+        const leafMat = new THREE.MeshStandardMaterial({ color: 0x1e421a, roughness: 0.8 });
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d2817 });
+
+        for (let i = 0; i < 480; i++) {
+            const tx = (Math.random() - 0.5) * 1300;
+            const tz = (Math.random() - 0.5) * 1300;
+            const riverZ = Math.sin(tx * 0.01) * 60;
+            if (Math.abs(tz - riverZ) < 65) continue; // Keep river banks clear
+
+            const ty = getTerrainHeight(tx, tz);
+            const tree = new THREE.Group();
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 3.0;
+            const leaves = new THREE.Mesh(treeGeo, leafMat);
+            leaves.position.y = 12.0;
+            leaves.castShadow = true;
+            tree.add(trunk, leaves);
+            tree.position.set(tx, ty, tz);
+            
+            const scale = 0.8 + Math.random() * 0.5;
+            tree.scale.set(scale, scale, scale);
+            state.scene.add(tree);
+        }
+
+        buildSengokuCamp(0, 560, 0x3498db);
+        buildSengokuCamp(0, -560, 0xd35400);
+    }
+
+    function buildSengokuCamp(cx, cz, colorHex) {
+        const cy = getTerrainHeight(cx, cz);
+        const campGroup = new THREE.Group();
+        campGroup.position.set(cx, cy, cz);
+
+        const fenceGeo = new THREE.CylinderGeometry(22, 22, 7, 16, 1, true);
+        const fenceMat = new THREE.MeshStandardMaterial({ color: colorHex, side: THREE.DoubleSide, roughness: 0.7 });
+        const fence = new THREE.Mesh(fenceGeo, fenceMat);
+        fence.position.y = 3.5;
+        campGroup.add(fence);
+
+        const poleGeo = new THREE.CylinderGeometry(0.18, 0.18, 14);
+        const poleMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+        const bannerGeo = new THREE.PlaneGeometry(3.5, 9);
+        const bannerMat = new THREE.MeshStandardMaterial({ color: colorHex, side: THREE.DoubleSide });
+
+        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 3) {
+            const bx = Math.cos(angle) * 26;
+            const bz = Math.sin(angle) * 26;
+            const pole = new THREE.Mesh(poleGeo, poleMat);
+            pole.position.set(bx, 7, bz);
+            const banner = new THREE.Mesh(bannerGeo, bannerMat);
+            banner.position.set(bx + 1.8, 8.5, bz);
+            campGroup.add(pole, banner);
+        }
+
+        state.scene.add(campGroup);
+    }
+
+    /* =========================================================================
+       3. SQUAD CLASS DEFINITION (Dense Swarm & Reduced March Speed)
+       ========================================================================= */
+
+    class Squad {
+        constructor(config, isPlayer) {
+            this.id = config.id;
+            this.name = config.name;
+            this.kamon = config.kamon;
+            this.type = config.type;
+            this.typeData = TROOP_TYPES[config.type];
+            this.isPlayer = isPlayer;
+            
+            this.hp = config.hp;
+            this.maxHp = config.maxHp;
+            this.morale = config.morale;
+            this.maxMorale = config.maxMorale;
+            this.lead = config.lead;
+            this.valor = config.valor;
+            this.wis = config.wis;
+            this.skillName = config.skill;
+            this.skillDesc = config.skillDesc;
+            this.color = config.color;
+
+            this.skillCooldown = 0;
+            this.maxSkillCooldown = Math.max(12, 35 - (this.wis * 0.15));
+            this.formation = 'WINGS';
+            this.status = 'IDLE';
+
+            const initY = getTerrainHeight(config.initPos.x, config.initPos.z);
+            this.position = new THREE.Vector3(config.initPos.x, initY, config.initPos.z);
+            this.targetPosition = this.position.clone();
+            this.headingAngle = isPlayer ? 0 : Math.PI;
+
+            this.kills = 0;
+            this.group = new THREE.Group();
+            this.soldiers = [];
+            this.unitCount = 40; // 40 Dense Soldiers per squad
+
+            state.scene.add(this.group);
+            this.build3DSoldiers();
+            this.updateSoldierFormations(0);
+        }
+
+        build3DSoldiers() {
+            // General / Commander Banner Pole
+            const bannerPoleGeo = new THREE.CylinderGeometry(0.12, 0.12, 11);
+            const poleMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+            const bannerGeo = new THREE.PlaneGeometry(3.8, 8);
+            const bannerMat = new THREE.MeshStandardMaterial({ color: this.color, side: THREE.DoubleSide, roughness: 0.5 });
+
+            this.bannerMesh = new THREE.Mesh(bannerGeo, bannerMat);
+            this.bannerMesh.position.set(2.0, 7.0, 0);
+
+            this.bannerGroup = new THREE.Group();
+            const pole = new THREE.Mesh(bannerPoleGeo, poleMat);
+            pole.position.y = 5.5;
+            this.bannerGroup.add(pole, this.bannerMesh);
+            this.group.add(this.bannerGroup);
+
+            // Floating Kamon Crest Badge
+            const badgeGeo = new THREE.CircleGeometry(3.0, 16);
+            const badgeMat = new THREE.MeshBasicMaterial({ color: this.color, side: THREE.DoubleSide });
+            this.kamonBadge = new THREE.Mesh(badgeGeo, badgeMat);
+            this.kamonBadge.position.set(0, 14.5, 0);
+            this.group.add(this.kamonBadge);
+
+            // Hitbox Mesh for Raycasting / Hover Selection
+            const hitGeo = new THREE.CylinderGeometry(10, 10, 15);
+            const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+            this.hitMesh = new THREE.Mesh(hitGeo, hitMat);
+            this.hitMesh.position.y = 7.5;
+            this.hitMesh.userData = { squad: this };
+            this.group.add(this.hitMesh);
+
+            // Selection Ring
+            const selRingGeo = new THREE.RingGeometry(12, 13.8, 32);
+            selRingGeo.rotateX(-Math.PI / 2);
+            const selRingMat = new THREE.MeshBasicMaterial({ color: 0xf1c40f, side: THREE.DoubleSide, transparent: true, opacity: 0 });
+            this.selectRing = new THREE.Mesh(selRingGeo, selRingMat);
+            this.selectRing.position.y = 0.3;
+            this.group.add(this.selectRing);
+
+            // Construct 40 Compact Soldier Meshes
+            for (let i = 0; i < this.unitCount; i++) {
+                const soldierGroup = new THREE.Group();
+                let bodyMesh;
+
+                if (this.type === 'CAVALRY') {
+                    const horseGeo = new THREE.BoxGeometry(0.85, 1.3, 2.2);
+                    const horseMat = new THREE.MeshStandardMaterial({ color: 0x6e4726 });
+                    bodyMesh = new THREE.Mesh(horseGeo, horseMat);
+                    bodyMesh.position.y = 0.85;
+
+                    const riderGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.2);
+                    const riderMat = new THREE.MeshStandardMaterial({ color: this.color });
+                    const rider = new THREE.Mesh(riderGeo, riderMat);
+                    rider.position.set(0, 1.1, 0);
+                    bodyMesh.add(rider);
+                } else {
+                    const bodyGeo = new THREE.CylinderGeometry(0.35, 0.42, 1.6);
+                    const bodyMat = new THREE.MeshStandardMaterial({ color: this.color });
+                    bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+                    bodyMesh.position.y = 0.8;
+
+                    const helmetGeo = new THREE.SphereGeometry(0.4, 8, 8);
+                    const helmetMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
+                    const helmet = new THREE.Mesh(helmetGeo, helmetMat);
+                    helmet.position.y = 0.9;
+                    bodyMesh.add(helmet);
+
+                    if (this.type === 'SPEAR') {
+                        const weapon = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 4.5), new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9 }));
+                        weapon.rotation.x = Math.PI / 3.2;
+                        weapon.position.set(0.3, 0.4, 0.8);
+                        bodyMesh.add(weapon);
+                    } else if (this.type === 'TEPPO') {
+                        const weapon = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.2, 2.2), new THREE.MeshStandardMaterial({ color: 0x3d2b1f }));
+                        weapon.position.set(0.3, 0.3, 0.4);
+                        bodyMesh.add(weapon);
+                    }
+                }
+
+                bodyMesh.castShadow = true;
+                bodyMesh.receiveShadow = true;
+                soldierGroup.add(bodyMesh);
+
+                this.soldiers.push({
+                    mesh: soldierGroup,
+                    baseOffset: new THREE.Vector3(),
+                    currentOffset: new THREE.Vector3(),
+                    wavePhase: Math.random() * Math.PI * 2
+                });
+
+                this.group.add(soldierGroup);
+            }
+        }
+
+        updateSoldierFormations(time) {
+            const spacing = 1.35;
+            this.soldiers.forEach((s, idx) => {
+                let ox = 0, oz = 0;
+
+                if (this.formation === 'WINGS') {
+                    const row = Math.floor(idx / 10);
+                    const col = (idx % 10) - 4.5;
+                    ox = col * spacing * 1.1;
+                    oz = Math.abs(col) * spacing * 0.8 + row * spacing * 0.9;
+                } else if (this.formation === 'WEDGE') {
+                    const row = Math.floor(Math.sqrt(idx));
+                    const colInRow = idx - row * row;
+                    ox = (colInRow - row / 2) * spacing * 1.15;
+                    oz = -row * spacing * 1.1;
+                } else if (this.formation === 'CIRCLE') {
+                    if (idx < 16) {
+                        const angle = (idx / 16) * Math.PI * 2;
+                        ox = Math.cos(angle) * 4.2;
+                        oz = Math.sin(angle) * 4.2;
+                    } else {
+                        const angle = ((idx - 16) / 24) * Math.PI * 2;
+                        ox = Math.cos(angle) * 7.5;
+                        oz = Math.sin(angle) * 7.5;
+                    }
+                } else if (this.formation === 'LINE') {
+                    const col = idx % 4;
+                    const row = Math.floor(idx / 4);
+                    ox = (col - 1.5) * spacing * 1.2;
+                    oz = row * spacing * 1.3;
+                }
+
+                s.baseOffset.set(ox, 0, oz);
+
+                // Organic Swarm Movement Wave
+                const isMoving = this.status === 'MARCH' || this.status === 'ROUTED';
+                const waveAmp = isMoving ? 0.65 : 0.18;
+                const waveFreq = isMoving ? 4.0 : 1.5;
+
+                const waveX = Math.sin(time * waveFreq + idx * 0.3 + s.wavePhase) * waveAmp;
+                const waveZ = Math.cos(time * (waveFreq * 0.85) + idx * 0.25) * (waveAmp * 0.6);
+
+                s.currentOffset.x = s.baseOffset.x + waveX;
+                s.currentOffset.z = s.baseOffset.z + waveZ;
+
+                const cosA = Math.cos(this.headingAngle);
+                const sinA = Math.sin(this.headingAngle);
+
+                const rx = s.currentOffset.x * cosA - s.currentOffset.z * sinA;
+                const rz = s.currentOffset.x * sinA + s.currentOffset.z * cosA;
+
+                const worldX = this.position.x + rx;
+                const worldZ = this.position.z + rz;
+                const terrainY = getTerrainHeight(worldX, worldZ);
+                const localY = terrainY - this.position.y;
+
+                s.mesh.position.set(rx, localY, rz);
+                s.mesh.rotation.y = this.headingAngle;
+            });
+        }
+
+        update(dt, time) {
+            if (this.hp <= 0) return;
+
+            if (this.skillCooldown > 0) {
+                this.skillCooldown = Math.max(0, this.skillCooldown - dt);
+            }
+
+            if (this.morale <= 0 && this.status !== 'ROUTED') {
+                this.status = 'ROUTED';
+                addBattleLog(`${this.name} 隊の士気が零となり【敗走】開始！`, 'bg-red-900/60 text-red-200');
+                const fleeX = this.isPlayer ? -600 : 600;
+                this.targetPosition.set(fleeX, 0, this.position.z);
+            }
+
+            // REDUCED MARCH SPEED FACTOR (7.5 for deliberate heavy tactical pacing)
+            const distToTarget = this.position.distanceTo(this.targetPosition);
+            if (distToTarget > 2.0) {
+                if (this.status !== 'ROUTED') this.status = 'MARCH';
+
+                const dir = new THREE.Vector3().subVectors(this.targetPosition, this.position).normalize();
+                this.headingAngle = Math.atan2(dir.x, dir.z);
+
+                const moveSpeed = this.typeData.speed * (this.status === 'ROUTED' ? 1.3 : 1.0) * 7.5 * dt;
+                this.position.addScaledVector(dir, Math.min(moveSpeed, distToTarget));
+            } else if (this.status === 'MARCH') {
+                this.status = 'IDLE';
+            }
+
+            this.position.y = getTerrainHeight(this.position.x, this.position.z);
+            this.group.position.copy(this.position);
+
+            const isSelected = state.selectedSquads.includes(this);
+            if (this.selectRing) {
+                this.selectRing.material.opacity = isSelected ? 0.85 : (state.hoveredSquad === this ? 0.4 : 0);
+                if (isSelected) this.selectRing.rotation.z += dt * 1.5;
+            }
+
+            if (this.kamonBadge && state.camera) {
+                this.kamonBadge.quaternion.copy(state.camera.quaternion);
+            }
+
+            if (this.bannerMesh) {
+                this.bannerMesh.rotation.y = Math.sin(time * 4) * 0.12;
+            }
+
+            this.updateSoldierFormations(time);
+
+            const aliveRatio = Math.max(0.08, this.hp / this.maxHp);
+            const visibleCount = Math.ceil(this.unitCount * aliveRatio);
+            this.soldiers.forEach((s, idx) => {
+                s.mesh.visible = idx < visibleCount;
+            });
+        }
+
+        useSkill() {
+            if (this.skillCooldown > 0 || this.hp <= 0) return false;
+
+            this.skillCooldown = this.maxSkillCooldown;
+            addBattleLog(`【奥義発動】${this.name}「${this.skillName}」！！`, 'bg-amber-600/80 text-white font-bold');
+
+            createSkillVisualEffect(this.position, this.color);
+
+            if (this.type === 'TEPPO') {
+                state.squads.forEach(enemy => {
+                    if (enemy.isPlayer !== this.isPlayer && enemy.hp > 0) {
+                        if (this.position.distanceTo(enemy.position) < 65) {
+                            enemy.takeDamage(220, 35, 'TEPPO_BURST');
+                            createTeppoFireParticles(this.position, enemy.position);
+                        }
+                    }
+                });
+            } else if (this.type === 'CAVALRY') {
+                this.morale = Math.min(this.maxMorale, this.morale + 30);
+                state.squads.forEach(enemy => {
+                    if (enemy.isPlayer !== this.isPlayer && enemy.hp > 0) {
+                        if (this.position.distanceTo(enemy.position) < 40) {
+                            enemy.takeDamage(280, 25, 'CHARGE');
+                        }
+                    }
+                });
+            } else if (this.type === 'SPEAR') {
+                this.hp = Math.min(this.maxHp, this.hp + 300);
+                this.morale = this.maxMorale;
+            } else if (this.type === 'KATANA') {
+                state.squads.forEach(enemy => {
+                    if (enemy.isPlayer !== this.isPlayer && enemy.hp > 0) {
+                        if (this.position.distanceTo(enemy.position) < 30) {
+                            enemy.takeDamage(320, 20, 'KATANA_SLASH');
+                        }
+                    }
+                });
+            } else if (this.type === 'YUMI') {
+                state.squads.forEach(enemy => {
+                    if (enemy.isPlayer !== this.isPlayer && enemy.hp > 0) {
+                        if (this.position.distanceTo(enemy.position) < 70) {
+                            enemy.takeDamage(180, 30, 'ARROW_RAIN');
+                            createArrowVolleyParticles(this.position, enemy.position);
+                        }
+                    }
+                });
+            }
+            return true;
+        }
+
+        takeDamage(hpDmg, moraleDmg, source) {
+            const defFactor = Math.max(0.4, 1.0 - (this.lead * 0.004));
+            const finalHpDmg = hpDmg * defFactor;
+            const finalMoraleDmg = moraleDmg * defFactor;
+
+            this.hp = Math.max(0, this.hp - finalHpDmg);
+            this.morale = Math.max(0, this.morale - finalMoraleDmg);
+
+            if (this.hp <= 0) {
+                this.group.visible = false;
+                addBattleLog(`💥 ${this.name} 隊が壊滅いたしました！`, 'bg-black/90 text-red-400 font-extrabold');
+            }
+        }
+    }
+
+    /* =========================================================================
+       4. REAL-TIME COMBAT ENGINE & PARTICLES
+       ========================================================================= */
+
+    function processRealTimeCombat(dt) {
+        const playerSquads = state.squads.filter(s => s.isPlayer && s.hp > 0);
+        const enemySquads = state.squads.filter(s => !s.isPlayer && s.hp > 0);
+
+        state.squads.forEach(squad => {
+            if (squad.hp <= 0 || squad.status === 'ROUTED') return;
+
+            const targets = squad.isPlayer ? enemySquads : playerSquads;
+            let closestEnemy = null;
+            let minDist = Infinity;
+
+            targets.forEach(enemy => {
+                const d = squad.position.distanceTo(enemy.position);
+                if (d < minDist) {
+                    minDist = d;
+                    closestEnemy = enemy;
+                }
+            });
+
+            if (!closestEnemy) return;
+
+            const attackRange = squad.typeData.range;
+
+            if (minDist <= attackRange) {
+                squad.status = 'ENGAGED';
+                
+                const dir = new THREE.Vector3().subVectors(closestEnemy.position, squad.position).normalize();
+                squad.headingAngle = Math.atan2(dir.x, dir.z);
+
+                const matchupFactor = computeMatchupFactor(squad.type, closestEnemy.type);
+                const valorBonus = 1.0 + (squad.valor * 0.004);
+                const defMult = closestEnemy.formation === 'CIRCLE' ? 0.7 : 1.0;
+
+                const baseHpDps = 8.0 * valorBonus * matchupFactor * defMult;
+                const baseMoraleDps = 2.0 * matchupFactor * defMult;
+
+                closestEnemy.takeDamage(baseHpDps * dt, baseMoraleDps * dt, squad.type);
+                squad.kills += Math.floor(baseHpDps * dt * 0.5);
+
+                if (squad.type === 'TEPPO' && Math.random() < 0.2) {
+                    createTeppoFireParticles(squad.position, closestEnemy.position);
+                } else if (squad.type === 'YUMI' && Math.random() < 0.25) {
+                    createArrowVolleyParticles(squad.position, closestEnemy.position);
+                }
+            }
+        });
+
+        processEnemyAI(dt, enemySquads, playerSquads);
+    }
+
+    function processEnemyAI(dt, enemySquads, playerSquads) {
+        if (playerSquads.length === 0) return;
+
+        enemySquads.forEach(enemy => {
+            if (enemy.hp <= 0 || enemy.status === 'ROUTED') return;
+
+            if (enemy.skillCooldown <= 0 && enemy.status === 'ENGAGED') {
+                enemy.useSkill();
+            }
+
+            if (enemy.status === 'IDLE') {
+                let bestTarget = playerSquads[0];
+                let bestScore = -Infinity;
+
+                playerSquads.forEach(p => {
+                    const dist = enemy.position.distanceTo(p.position);
+                    const matchup = computeMatchupFactor(enemy.type, p.type);
+                    const score = (matchup * 100) - dist;
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestTarget = p;
+                    }
+                });
+
+                if (bestTarget) {
+                    enemy.targetPosition.copy(bestTarget.position);
+                    enemy.status = 'MARCH';
+                }
+            }
+        });
+    }
+
+    function createSkillVisualEffect(pos, colorHex) {
+        const ringGeo = new THREE.RingGeometry(0.5, 20, 32);
+        ringGeo.rotateX(-Math.PI / 2);
+        const ringMat = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+        const mesh = new THREE.Mesh(ringGeo, ringMat);
+        mesh.position.copy(pos);
+        mesh.position.y = 0.5;
+        state.scene.add(mesh);
+
+        state.particles.push({
+            mesh: mesh,
+            life: 1.0,
+            update: (p, dt) => {
+                p.life -= dt * 1.5;
+                mesh.scale.addScalar(dt * 3.0);
+                ringMat.opacity = p.life;
+                return p.life > 0;
+            }
+        });
+    }
+
+    function createTeppoFireParticles(srcPos, targetPos) {
+        const geo = new THREE.SphereGeometry(1.2, 6, 6);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffaa44, transparent: true, opacity: 0.9 });
+        const flash = new THREE.Mesh(geo, mat);
+        flash.position.copy(srcPos);
+        flash.position.y += 2.5;
+        state.scene.add(flash);
+
+        state.particles.push({
+            mesh: flash,
+            life: 0.25,
+            update: (p, dt) => {
+                p.life -= dt * 4.0;
+                flash.scale.addScalar(dt * 5.0);
+                mat.opacity = p.life;
+                return p.life > 0;
+            }
+        });
+    }
+
+    function createArrowVolleyParticles(srcPos, targetPos) {
+        const arrowGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.8);
+        const arrowMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
+
+        for (let i = 0; i < 6; i++) {
+            const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+            arrow.position.copy(srcPos);
+            arrow.position.x += (Math.random() - 0.5) * 6;
+            arrow.position.z += (Math.random() - 0.5) * 6;
+            arrow.position.y += 3;
+            state.scene.add(arrow);
+
+            const startP = arrow.position.clone();
+            const endP = targetPos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 8, 0, (Math.random() - 0.5) * 8));
+
+            state.particles.push({
+                mesh: arrow,
+                progress: 0,
+                update: (p, dt) => {
+                    p.progress += dt * 2.2;
+                    arrow.position.lerpVectors(startP, endP, p.progress);
+                    arrow.position.y = startP.y + Math.sin(p.progress * Math.PI) * 12;
+                    return p.progress < 1.0;
+                }
+            });
+        }
+    }
+
+    function updateParticles(dt) {
+        for (let i = state.particles.length - 1; i >= 0; i--) {
+            const p = state.particles[i];
+            const alive = p.update(p, dt);
+            if (!alive) {
+                state.scene.remove(p.mesh);
+                p.mesh.geometry.dispose();
+                p.mesh.material.dispose();
+                state.particles.splice(i, 1);
+            }
+        }
+    }
+
+    /* =========================================================================
+       5. USER INTERFACE, HOVER TOOLTIP & INTERACTION ENGINE
+       ========================================================================= */
+
+    function setupUI() {
+        const container = document.getElementById('squad-quick-list');
+        container.innerHTML = '';
+
+        state.squads.filter(s => s.isPlayer).forEach((squad, idx) => {
+            const card = document.createElement('div');
+            card.className = `sengoku-card p-1.5 rounded flex items-center justify-between cursor-pointer text-xs ${idx === 0 ? 'selected' : ''}`;
+            card.id = `card-${squad.id}`;
+            card.onclick = () => selectSquad(squad, false);
+
+            card.innerHTML = `
+                <div class="flex items-center gap-1.5">
+                    <span class="w-5 h-5 rounded-full bg-amber-900 border border-amber-500 flex items-center justify-center font-bold text-amber-200 text-[10px]">${squad.kamon}</span>
+                    <div>
+                        <div class="font-sengoku font-bold text-amber-200 text-xs">${squad.name}</div>
+                        <div class="text-[9px] text-amber-400/80">${squad.typeData.name}</div>
+                    </div>
+                </div>
+                <div class="w-14 flex flex-col gap-0.5">
+                    <div class="w-full bg-gray-900 h-1 rounded-full overflow-hidden">
+                        <div id="qhp-${squad.id}" class="bg-emerald-500 h-full" style="width:100%"></div>
+                    </div>
+                    <div class="w-full bg-gray-900 h-1 rounded-full overflow-hidden">
+                        <div id="qmr-${squad.id}" class="bg-amber-400 h-full" style="width:100%"></div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+
+        // Skill Button Click
+        document.getElementById('btn-skill').onclick = () => {
+            if (state.selectedSquads.length > 0) {
+                state.selectedSquads.forEach(s => s.useSkill());
+            }
+        };
+
+        // Formations Buttons Click
+        document.querySelectorAll('.btn-formation').forEach(btn => {
+            btn.onclick = (e) => {
+                const formKey = e.target.getAttribute('data-formation');
+                state.selectedSquads.forEach(s => {
+                    s.formation = formKey;
+                });
+                addBattleLog(`陣形変更：${FORMATIONS[formKey]}に移行`, 'text-amber-300');
+            };
+        });
+
+        // Toggle UI Panels Visibility (画面をすっきり見せる機能)
+        let squadListVisible = true;
+        document.getElementById('toggle-squad-list').onclick = () => {
+            squadListVisible = !squadListVisible;
+            document.getElementById('squad-quick-list').style.display = squadListVisible ? 'flex' : 'none';
+            document.getElementById('toggle-squad-list').innerText = squadListVisible ? '非表示 ▲' : '表示 ▼';
+        };
+
+        let bottomPanelVisible = true;
+        document.getElementById('toggle-bottom-panel').onclick = () => {
+            bottomPanelVisible = !bottomPanelVisible;
+            document.getElementById('bottom-panel-content').style.display = bottomPanelVisible ? 'flex' : 'none';
+            document.getElementById('toggle-bottom-panel').innerText = bottomPanelVisible ? '詳細パネル 格納 ▼' : '詳細パネル 表示 ▲';
+        };
+
+        let battleLogExpanded = false;
+        document.getElementById('toggle-battle-log').onclick = () => {
+            battleLogExpanded = !battleLogExpanded;
+            const logEl = document.getElementById('battle-log');
+            logEl.style.height = battleLogExpanded ? '140px' : '96px';
+            document.getElementById('toggle-battle-log').innerText = battleLogExpanded ? '小 ▼' : '大 ▲';
+        };
+
+        // Pause & Speed Buttons
+        document.getElementById('btn-pause').onclick = () => {
+            state.isPaused = !state.isPaused;
+            document.getElementById('btn-pause').innerText = state.isPaused ? '再開' : '一時停止';
+        };
+
+        document.getElementById('btn-speed').onclick = () => {
+            state.gameSpeed = state.gameSpeed === 1 ? 2 : (state.gameSpeed === 2 ? 3 : 1);
+            document.getElementById('btn-speed').innerText = `速度 ${state.gameSpeed}x`;
+        };
+
+        // Camera Quick Controls
+        document.getElementById('cam-reset').onclick = () => {
+            state.controls.target.set(0, 0, 0);
+            state.camera.position.set(0, 480, 680);
+        };
+
+        document.getElementById('cam-follow').onclick = () => {
+            if (state.selectedSquads.length > 0) {
+                const p = state.selectedSquads[0].position;
+                state.controls.target.copy(p);
+            }
+        };
+
+        document.getElementById('btn-restart').onclick = () => {
+            window.location.reload();
+        };
+
+        // Keyboard Shortcuts (1-5)
+        window.addEventListener('keydown', (e) => {
+            const num = parseInt(e.key);
+            if (num >= 1 && num <= 5) {
+                const playerSquads = state.squads.filter(s => s.isPlayer);
+                if (playerSquads[num - 1]) {
+                    selectSquad(playerSquads[num - 1], e.shiftKey);
+                }
+            }
+        });
+
+        const dom = state.renderer.domElement;
+        dom.addEventListener('pointerdown', onPointerDown);
+        dom.addEventListener('pointermove', onPointerMove);
+        dom.addEventListener('pointerup', onPointerUp);
+    }
+
+    function selectSquad(squad, append = false) {
+        if (!append) {
+            state.selectedSquads = [squad];
+        } else if (!state.selectedSquads.includes(squad)) {
+            state.selectedSquads.push(squad);
+        }
+
+        document.querySelectorAll('.sengoku-card').forEach(c => c.classList.remove('selected'));
+        state.selectedSquads.forEach(s => {
+            const el = document.getElementById(`card-${s.id}`);
+            if (el) el.classList.add('selected');
+        });
+
+        updateSelectedPanelUI();
+    }
+
+    function updateSelectedPanelUI() {
+        if (state.selectedSquads.length === 0) return;
+
+        const mainSquad = state.selectedSquads[0];
+
+        document.getElementById('panel-kamon').innerText = mainSquad.kamon;
+        document.getElementById('panel-general-name').innerText = mainSquad.name;
+        document.getElementById('panel-troop-type').innerText = mainSquad.typeData.name;
+
+        document.getElementById('stat-lead').innerText = mainSquad.lead;
+        document.getElementById('stat-valor').innerText = mainSquad.valor;
+        document.getElementById('stat-wis').innerText = mainSquad.wis;
+
+        document.getElementById('panel-skill-name').innerText = `奥義：${mainSquad.skillName}`;
+        document.getElementById('panel-skill-desc').innerText = mainSquad.skillDesc;
+
+        const cdPercent = (mainSquad.skillCooldown / mainSquad.maxSkillCooldown) * 100;
+        document.getElementById('skill-cd-overlay').style.width = `${cdPercent}%`;
+        document.getElementById('btn-skill').disabled = mainSquad.skillCooldown > 0;
+    }
+
+    function updateHUDGauges() {
+        state.squads.forEach(s => {
+            const qhp = document.getElementById(`qhp-${s.id}`);
+            const qmr = document.getElementById(`qmr-${s.id}`);
+            if (qhp) qhp.style.width = `${Math.max(0, (s.hp / s.maxHp) * 100)}%`;
+            if (qmr) qmr.style.width = `${Math.max(0, (s.morale / s.maxMorale) * 100)}%`;
+        });
+
+        if (state.selectedSquads.length > 0) {
+            const squad = state.selectedSquads[0];
+            const hpPct = Math.max(0, (squad.hp / squad.maxHp) * 100);
+            const mrPct = Math.max(0, (squad.morale / squad.maxMorale) * 100);
+
+            document.getElementById('panel-hp-bar').style.width = `${hpPct}%`;
+            document.getElementById('panel-hp-text').innerText = `${Math.ceil(squad.hp)} / ${squad.maxHp}`;
+
+            document.getElementById('panel-morale-bar').style.width = `${mrPct}%`;
+            document.getElementById('panel-morale-text').innerText = `${Math.ceil(squad.morale)} / ${squad.maxMorale}`;
+
+            updateSelectedPanelUI();
+        }
+
+        let playerTotalHp = 0, enemyTotalHp = 0;
+        state.squads.forEach(s => {
+            if (s.isPlayer) playerTotalHp += s.hp;
+            else enemyTotalHp += s.hp;
+        });
+
+        const total = playerTotalHp + enemyTotalHp;
+        if (total > 0) {
+            const pRatio = (playerTotalHp / total) * 100;
+            document.getElementById('player-war-bar').style.width = `${pRatio}%`;
+            document.getElementById('enemy-war-bar').style.width = `${100 - pRatio}%`;
+
+            const textEl = document.getElementById('war-status-text');
+            if (pRatio > 65) textEl.innerText = '東軍（織田）優勢！';
+            else if (pRatio < 35) textEl.innerText = '西軍（武田）優勢！';
+            else textEl.innerText = '互角の戦況';
+        }
+    }
+
+    function onPointerDown(e) {
+        if (e.button !== 0) return;
+
+        state.isDragging = true;
+        state.dragStart = { x: e.clientX, y: e.clientY };
+
+        const boxEl = document.getElementById('selection-box');
+        boxEl.style.left = `${e.clientX}px`;
+        boxEl.style.top = `${e.clientY}px`;
+        boxEl.style.width = '0px';
+        boxEl.style.height = '0px';
+        boxEl.style.display = 'block';
+    }
+
+    function onPointerMove(e) {
+        state.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        state.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+        if (state.isDragging) {
+            const currentX = e.clientX;
+            const currentY = e.clientY;
+
+            const left = Math.min(state.dragStart.x, currentX);
+            const top = Math.min(state.dragStart.y, currentY);
+            const width = Math.abs(currentX - state.dragStart.x);
+            const height = Math.abs(currentY - state.dragStart.y);
+
+            const boxEl = document.getElementById('selection-box');
+            boxEl.style.left = `${left}px`;
+            boxEl.style.top = `${top}px`;
+            boxEl.style.width = `${width}px`;
+            boxEl.style.height = `${height}px`;
+        } else {
+            // Hover Tooltip Detection (カーソルホバーによる部隊情報表示)
+            state.raycaster.setFromCamera(state.mouse, state.camera);
+            const hitTargets = state.squads.filter(s => s.hp > 0).map(s => s.hitMesh);
+            const intersects = state.raycaster.intersectObjects(hitTargets);
+
+            const tooltipEl = document.getElementById('squad-hover-tooltip');
+
+            if (intersects.length > 0) {
+                const hovered = intersects[0].object.userData.squad;
+                state.hoveredSquad = hovered;
+
+                document.getElementById('tt-kamon').innerText = hovered.kamon;
+                document.getElementById('tt-name').innerText = hovered.name;
+                document.getElementById('tt-type').innerText = `${hovered.isPlayer ? '東軍' : '西軍'} | ${hovered.typeData.name}`;
+
+                // Status Badge styling
+                const statusEl = document.getElementById('tt-status');
+                if (hovered.status === 'ENGAGED') {
+                    statusEl.innerText = '交戦中';
+                    statusEl.className = 'ml-auto text-[10px] px-1.5 py-0.5 rounded font-bold bg-red-900 text-red-200 border border-red-500';
+                } else if (hovered.status === 'MARCH') {
+                    statusEl.innerText = '行軍中';
+                    statusEl.className = 'ml-auto text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-900 text-blue-200 border border-blue-500';
+                } else if (hovered.status === 'ROUTED') {
+                    statusEl.innerText = '敗走中';
+                    statusEl.className = 'ml-auto text-[10px] px-1.5 py-0.5 rounded font-bold bg-gray-900 text-gray-300 border border-gray-600';
+                } else {
+                    statusEl.innerText = '待機';
+                    statusEl.className = 'ml-auto text-[10px] px-1.5 py-0.5 rounded font-bold bg-amber-950 text-amber-300 border border-amber-600';
+                }
+
+                document.getElementById('tt-hp-text').innerText = `${Math.ceil(hovered.hp)} / ${hovered.maxHp}`;
+                document.getElementById('tt-hp-bar').style.width = `${Math.max(0, (hovered.hp / hovered.maxHp) * 100)}%`;
+
+                document.getElementById('tt-morale-text').innerText = `${Math.ceil(hovered.morale)} / ${hovered.maxMorale}`;
+                document.getElementById('tt-morale-bar').style.width = `${Math.max(0, (hovered.morale / hovered.maxMorale) * 100)}%`;
+
+                tooltipEl.style.left = `${e.clientX + 16}px`;
+                tooltipEl.style.top = `${e.clientY + 16}px`;
+                tooltipEl.style.display = 'block';
+            } else {
+                state.hoveredSquad = null;
+                tooltipEl.style.display = 'none';
+            }
+        }
+    }
+
+    function onPointerUp(e) {
+        if (!state.isDragging) return;
+        state.isDragging = false;
+
+        const boxEl = document.getElementById('selection-box');
+        boxEl.style.display = 'none';
+
+        const dragWidth = Math.abs(e.clientX - state.dragStart.x);
+        const dragHeight = Math.abs(e.clientY - state.dragStart.y);
+
+        if (dragWidth < 6 && dragHeight < 6) {
+            handleSingleClick(e);
+        } else {
+            handleBoxSelection(state.dragStart.x, state.dragStart.y, e.clientX, e.clientY);
+        }
+    }
+
+    function handleSingleClick(e) {
+        state.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        state.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+        state.raycaster.setFromCamera(state.mouse, state.camera);
+
+        const intersects = state.raycaster.intersectObject(state.groundPlane);
+        if (intersects.length > 0 && state.selectedSquads.length > 0) {
+            const targetPt = intersects[0].point;
+
+            state.targetRing.position.copy(targetPt);
+            state.targetRing.position.y = 0.3;
+            state.targetRing.material.opacity = 1.0;
+
+            state.selectedSquads.forEach((squad, idx) => {
+                if (squad.hp > 0 && squad.status !== 'ROUTED') {
+                    const offset = new THREE.Vector3((idx - (state.selectedSquads.length - 1) / 2) * 18, 0, 0);
+                    squad.targetPosition.copy(targetPt).add(offset);
+                    squad.status = 'MARCH';
+                }
+            });
+
+            addBattleLog(`進撃指示：(${Math.round(targetPt.x)}, ${Math.round(targetPt.z)}) 地点へ行軍開始`, 'text-emerald-300');
+        }
+    }
+
+    function handleBoxSelection(x1, y1, x2, y2) {
+        const minX = Math.min(x1, x2);
+        const maxX = Math.max(x1, x2);
+        const minY = Math.min(y1, y2);
+        const maxY = Math.max(y1, y2);
+
+        const selected = [];
+        state.squads.filter(s => s.isPlayer && s.hp > 0).forEach(squad => {
+            const proj = squad.position.clone().project(state.camera);
+            const sx = (proj.x + 1) * window.innerWidth / 2;
+            const sy = (-proj.y + 1) * window.innerHeight / 2;
+
+            if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
+                selected.push(squad);
+            }
+        });
+
+        if (selected.length > 0) {
+            state.selectedSquads = selected;
+            updateSelectedPanelUI();
+            addBattleLog(`${selected.length} 部隊を一括選択`, 'text-amber-300');
+        }
+    }
+
+    function addBattleLog(msg, colorClass = 'text-gray-300') {
+        const logBox = document.getElementById('battle-log');
+        const entry = document.createElement('div');
+        entry.className = `p-1 rounded bg-black/40 ${colorClass}`;
+        entry.innerText = msg;
+        logBox.appendChild(entry);
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function renderMinimap() {
+        const canvas = document.getElementById('minimap-canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const mapScale = canvas.width / 1400; // Scaled for 1400 map
+        const center = canvas.width / 2;
+
+        ctx.fillStyle = '#2b5e7d';
+        ctx.fillRect(0, center - 6, canvas.width, 12);
+
+        ctx.fillStyle = '#8b5a2b';
+        ctx.fillRect(center - 300 * mapScale - 3, center - 8, 6, 16);
+        ctx.fillRect(center - 3, center - 8, 6, 16);
+        ctx.fillRect(center + 300 * mapScale - 3, center - 8, 6, 16);
+
+        state.squads.forEach(squad => {
+            if (squad.hp <= 0) return;
+
+            const mx = center + squad.position.x * mapScale;
+            const my = center + squad.position.z * mapScale;
+
+            ctx.fillStyle = squad.isPlayer ? '#3498db' : '#e74c3c';
+            ctx.beginPath();
+            ctx.arc(mx, my, squad.isPlayer ? 3.5 : 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (state.selectedSquads.includes(squad)) {
+                ctx.strokeStyle = '#f1c40f';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+        });
+    }
+
+    function onWindowResize() {
+        state.camera.aspect = window.innerWidth / window.innerHeight;
+        state.camera.updateProjectionMatrix();
+        state.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    /* =========================================================================
+       6. MAIN GAME LOOP & WIN/LOSS CONDITIONS
+       ========================================================================= */
+
+    function checkVictoryConditions() {
+        if (state.gameOver) return;
+
+        const playerAlive = state.squads.filter(s => s.isPlayer && s.hp > 0).length;
+        const enemyAlive = state.squads.filter(s => !s.isPlayer && s.hp > 0).length;
+
+        if (enemyAlive === 0 || playerAlive === 0) {
+            state.gameOver = true;
+            const modal = document.getElementById('modal-result');
+            modal.classList.remove('hidden');
+
+            const title = document.getElementById('result-title');
+            const sub = document.getElementById('result-subtitle');
+
+            if (enemyAlive === 0) {
+                title.innerText = '勝鬨をあげよ！';
+                title.className = 'text-4xl font-sengoku font-extrabold text-amber-400 tracking-widest';
+                sub.innerText = '敵全軍を破り、川中島の合戦に勝利いたしました！';
+            } else {
+                title.innerText = '無念… 無念なり！';
+                title.className = 'text-4xl font-sengoku font-extrabold text-red-500 tracking-widest';
+                sub.innerText = '我が軍は壊滅し、合戦に敗北いたしました…';
+            }
+
+            document.getElementById('res-survived').innerText = `${playerAlive} / 5 部隊`;
+            document.getElementById('res-killed').innerText = `${5 - enemyAlive} 部隊`;
+
+            const minutes = Math.floor(state.gameTime / 60).toString().padStart(2, '0');
+            const seconds = Math.floor(state.gameTime % 60).toString().padStart(2, '0');
+            document.getElementById('res-time').innerText = `${minutes}:${seconds}`;
+
+            let mvp = state.squads[0];
+            state.squads.forEach(s => { if (s.kills > mvp.kills) mvp = s; });
+            document.getElementById('res-mvp').innerText = `${mvp.name} (${mvp.kills} 兵撃破)`;
+        }
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        const rawDt = state.clock.getDelta();
+        if (state.isPaused || state.gameOver) return;
+
+        const dt = rawDt * state.gameSpeed;
+        state.gameTime += dt;
+
+        const mins = Math.floor(state.gameTime / 60).toString().padStart(2, '0');
+        const secs = Math.floor(state.gameTime % 60).toString().padStart(2, '0');
+        document.getElementById('game-timer').innerText = `${mins}:${secs}`;
+
+        const time = state.clock.getElapsedTime();
+
+        if (state.targetRing && state.targetRing.material.opacity > 0) {
+            state.targetRing.material.opacity -= dt * 2.0;
+        }
+
+        state.squads.forEach(squad => squad.update(dt, time));
+
+        processRealTimeCombat(dt);
+        updateParticles(dt);
+        updateHUDGauges();
+        renderMinimap();
+
+        state.controls.update();
+        checkVictoryConditions();
+
+        state.renderer.render(state.scene, state.camera);
+    }
+
+    window.onload = () => {
+        initEngine();
+
+        PLAYER_GENERALS.forEach(cfg => {
+            state.squads.push(new Squad(cfg, true));
+        });
+
+        ENEMY_GENERALS.forEach(cfg => {
+            state.squads.push(new Squad(cfg, false));
+        });
+
+        setupUI();
+        selectSquad(state.squads[0]);
+        animate();
+    };
+    </script>
+</body>
+</html>

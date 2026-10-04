@@ -1,0 +1,262 @@
+<!-- ... existing code ... -->
+            <!-- Squad Mouse Hover HUD Tooltip -->
+            <div id="squad-hover-tooltip" class="fixed pointer-events-none z-30 hidden sengoku-panel p-2.5 rounded-lg border border-amber-400 text-xs shadow-2xl transition-opacity duration-150 min-w-[210px]">
+<!-- ... existing code ... -->
+    <script>
+    /* ... existing code ... */
+    /* =========================================================================
+       3. SQUAD CLASS DEFINITION (Dense Swarm & Enlarged Formation)
+       ========================================================================= */
+
+    class Squad {
+        constructor(config, isPlayer) {
+            this.id = config.id;
+            this.name = config.name;
+            this.kamon = config.kamon;
+            this.type = config.type;
+            this.typeData = TROOP_TYPES[config.type];
+            this.isPlayer = isPlayer;
+            
+            this.hp = config.hp;
+            this.maxHp = config.maxHp;
+            this.morale = config.morale;
+            this.maxMorale = config.maxMorale;
+            this.lead = config.lead;
+            this.valor = config.valor;
+            this.wis = config.wis;
+            this.skillName = config.skill;
+            this.skillDesc = config.skillDesc;
+            this.color = config.color;
+
+            this.skillCooldown = 0;
+            this.maxSkillCooldown = Math.max(12, 35 - (this.wis * 0.15));
+            this.formation = 'WINGS';
+            this.status = 'IDLE';
+
+            const initY = getTerrainHeight(config.initPos.x, config.initPos.z);
+            this.position = new THREE.Vector3(config.initPos.x, initY, config.initPos.z);
+            this.targetPosition = this.position.clone();
+            this.headingAngle = isPlayer ? 0 : Math.PI;
+
+            this.kills = 0;
+            this.group = new THREE.Group();
+            this.soldiers = [];
+            this.unitCount = 40; // 40 Soldiers forming a massive clump
+
+            state.scene.add(this.group);
+            this.build3DSoldiers();
+            this.updateSoldierFormations(0);
+        }
+
+        build3DSoldiers() {
+            // General / Commander Banner Pole (Scaled up for high visibility)
+            const bannerPoleGeo = new THREE.CylinderGeometry(0.25, 0.25, 18);
+            const poleMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+            const bannerGeo = new THREE.PlaneGeometry(6.0, 12.0);
+            const bannerMat = new THREE.MeshStandardMaterial({ color: this.color, side: THREE.DoubleSide, roughness: 0.5 });
+
+            this.bannerMesh = new THREE.Mesh(bannerGeo, bannerMat);
+            this.bannerMesh.position.set(3.5, 12.0, 0);
+
+            this.bannerGroup = new THREE.Group();
+            const pole = new THREE.Mesh(bannerPoleGeo, poleMat);
+            pole.position.y = 9.0;
+            this.bannerGroup.add(pole, this.bannerMesh);
+            this.group.add(this.bannerGroup);
+
+            // Floating Kamon Crest Badge (Enlarged and raised higher)
+            const badgeGeo = new THREE.CircleGeometry(5.5, 16);
+            const badgeMat = new THREE.MeshBasicMaterial({ color: this.color, side: THREE.DoubleSide });
+            this.kamonBadge = new THREE.Mesh(badgeGeo, badgeMat);
+            this.kamonBadge.position.set(0, 24.0, 0);
+            this.group.add(this.kamonBadge);
+
+            // Expanded Hitbox Mesh for Selection & Hover
+            const hitGeo = new THREE.CylinderGeometry(22, 22, 22);
+            const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+            this.hitMesh = new THREE.Mesh(hitGeo, hitMat);
+            this.hitMesh.position.y = 11.0;
+            this.hitMesh.userData = { squad: this };
+            this.group.add(this.hitMesh);
+
+            // Expanded Selection Ring
+            const selRingGeo = new THREE.RingGeometry(21, 24.5, 32);
+            selRingGeo.rotateX(-Math.PI / 2);
+            const selRingMat = new THREE.MeshBasicMaterial({ color: 0xf1c40f, side: THREE.DoubleSide, transparent: true, opacity: 0 });
+            this.selectRing = new THREE.Mesh(selRingGeo, selRingMat);
+            this.selectRing.position.y = 0.4;
+            this.group.add(this.selectRing);
+
+            // Construct 40 Larger Soldier Models
+            for (let i = 0; i < this.unitCount; i++) {
+                const soldierGroup = new THREE.Group();
+                let bodyMesh;
+
+                if (this.type === 'CAVALRY') {
+                    // Larger Horse & Cavalry Rider
+                    const horseGeo = new THREE.BoxGeometry(1.6, 2.4, 3.8);
+                    const horseMat = new THREE.MeshStandardMaterial({ color: 0x6e4726 });
+                    bodyMesh = new THREE.Mesh(horseGeo, horseMat);
+                    bodyMesh.position.y = 1.6;
+
+                    const riderGeo = new THREE.CylinderGeometry(0.65, 0.65, 2.2);
+                    const riderMat = new THREE.MeshStandardMaterial({ color: this.color });
+                    const rider = new THREE.Mesh(riderGeo, riderMat);
+                    rider.position.set(0, 1.8, 0);
+                    bodyMesh.add(rider);
+                } else {
+                    // Larger Infantry Body & Helmet
+                    const bodyGeo = new THREE.CylinderGeometry(0.65, 0.78, 2.8);
+                    const bodyMat = new THREE.MeshStandardMaterial({ color: this.color });
+                    bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+                    bodyMesh.position.y = 1.4;
+
+                    const helmetGeo = new THREE.SphereGeometry(0.72, 8, 8);
+                    const helmetMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
+                    const helmet = new THREE.Mesh(helmetGeo, helmetMat);
+                    helmet.position.y = 1.65;
+                    bodyMesh.add(helmet);
+
+                    if (this.type === 'SPEAR') {
+                        const weapon = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 7.5), new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9 }));
+                        weapon.rotation.x = Math.PI / 3.2;
+                        weapon.position.set(0.5, 0.6, 1.4);
+                        bodyMesh.add(weapon);
+                    } else if (this.type === 'TEPPO') {
+                        const weapon = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.35, 3.8), new THREE.MeshStandardMaterial({ color: 0x3d2b1f }));
+                        weapon.position.set(0.5, 0.5, 0.7);
+                        bodyMesh.add(weapon);
+                    }
+                }
+
+                bodyMesh.castShadow = true;
+                bodyMesh.receiveShadow = true;
+                soldierGroup.add(bodyMesh);
+
+                this.soldiers.push({
+                    mesh: soldierGroup,
+                    baseOffset: new THREE.Vector3(),
+                    currentOffset: new THREE.Vector3(),
+                    wavePhase: Math.random() * Math.PI * 2
+                });
+
+                this.group.add(soldierGroup);
+            }
+        }
+
+        updateSoldierFormations(time) {
+            // Increased spacing to form a substantial troop block
+            const spacing = 2.4;
+            this.soldiers.forEach((s, idx) => {
+                let ox = 0, oz = 0;
+
+                if (this.formation === 'WINGS') {
+                    const row = Math.floor(idx / 10);
+                    const col = (idx % 10) - 4.5;
+                    ox = col * spacing * 1.15;
+                    oz = Math.abs(col) * spacing * 0.85 + row * spacing * 0.95;
+                } else if (this.formation === 'WEDGE') {
+                    const row = Math.floor(Math.sqrt(idx));
+                    const colInRow = idx - row * row;
+                    ox = (colInRow - row / 2) * spacing * 1.2;
+                    oz = -row * spacing * 1.15;
+                } else if (this.formation === 'CIRCLE') {
+                    if (idx < 16) {
+                        const angle = (idx / 16) * Math.PI * 2;
+                        ox = Math.cos(angle) * 7.5;
+                        oz = Math.sin(angle) * 7.5;
+                    } else {
+                        const angle = ((idx - 16) / 24) * Math.PI * 2;
+                        ox = Math.cos(angle) * 13.5;
+                        oz = Math.sin(angle) * 13.5;
+                    }
+                } else if (this.formation === 'LINE') {
+                    const col = idx % 4;
+                    const row = Math.floor(idx / 4);
+                    ox = (col - 1.5) * spacing * 1.25;
+                    oz = row * spacing * 1.35;
+                }
+
+                s.baseOffset.set(ox, 0, oz);
+
+                // Organic Swarm Movement Wave
+                const isMoving = this.status === 'MARCH' || this.status === 'ROUTED';
+                const waveAmp = isMoving ? 0.8 : 0.22;
+                const waveFreq = isMoving ? 3.5 : 1.3;
+
+                const waveX = Math.sin(time * waveFreq + idx * 0.3 + s.wavePhase) * waveAmp;
+                const waveZ = Math.cos(time * (waveFreq * 0.85) + idx * 0.25) * (waveAmp * 0.6);
+
+                s.currentOffset.x = s.baseOffset.x + waveX;
+                s.currentOffset.z = s.baseOffset.z + waveZ;
+
+                const cosA = Math.cos(this.headingAngle);
+                const sinA = Math.sin(this.headingAngle);
+
+                const rx = s.currentOffset.x * cosA - s.currentOffset.z * sinA;
+                const rz = s.currentOffset.x * sinA + s.currentOffset.z * cosA;
+
+                const worldX = this.position.x + rx;
+                const worldZ = this.position.z + rz;
+                const terrainY = getTerrainHeight(worldX, worldZ);
+                const localY = terrainY - this.position.y;
+
+                s.mesh.position.set(rx, localY, rz);
+                s.mesh.rotation.y = this.headingAngle;
+            });
+        }
+
+        update(dt, time) {
+            if (this.hp <= 0) return;
+
+            if (this.skillCooldown > 0) {
+                this.skillCooldown = Math.max(0, this.skillCooldown - dt);
+            }
+
+            if (this.morale <= 0 && this.status !== 'ROUTED') {
+                this.status = 'ROUTED';
+                addBattleLog(`${this.name} 隊の士気が零となり【敗走】開始！`, 'bg-red-900/60 text-red-200');
+                const fleeX = this.isPlayer ? -600 : 600;
+                this.targetPosition.set(fleeX, 0, this.position.z);
+            }
+
+            // REDUCED MARCH SPEED (Multiplier adjusted from 7.5 to 3.8 for deliberate Sengoku tactical march speed)
+            const distToTarget = this.position.distanceTo(this.targetPosition);
+            if (distToTarget > 2.0) {
+                if (this.status !== 'ROUTED') this.status = 'MARCH';
+
+                const dir = new THREE.Vector3().subVectors(this.targetPosition, this.position).normalize();
+                this.headingAngle = Math.atan2(dir.x, dir.z);
+
+                const moveSpeed = this.typeData.speed * (this.status === 'ROUTED' ? 1.3 : 1.0) * 3.8 * dt;
+                this.position.addScaledVector(dir, Math.min(moveSpeed, distToTarget));
+            } else if (this.status === 'MARCH') {
+                this.status = 'IDLE';
+            }
+
+            this.position.y = getTerrainHeight(this.position.x, this.position.z);
+            this.group.position.copy(this.position);
+
+            const isSelected = state.selectedSquads.includes(this);
+            if (this.selectRing) {
+                this.selectRing.material.opacity = isSelected ? 0.85 : (state.hoveredSquad === this ? 0.4 : 0);
+                if (isSelected) this.selectRing.rotation.z += dt * 1.5;
+            }
+
+            if (this.kamonBadge && state.camera) {
+                this.kamonBadge.quaternion.copy(state.camera.quaternion);
+            }
+
+            if (this.bannerMesh) {
+                this.bannerMesh.rotation.y = Math.sin(time * 4) * 0.12;
+            }
+
+            this.updateSoldierFormations(time);
+
+            const aliveRatio = Math.max(0.08, this.hp / this.maxHp);
+            const visibleCount = Math.ceil(this.unitCount * aliveRatio);
+            this.soldiers.forEach((s, idx) => {
+                s.mesh.visible = idx < visibleCount;
+            });
+        }
+/* ... existing code ... */
